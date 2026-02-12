@@ -1,0 +1,7 @@
+.env
+.venv/
+epubs/
+data/
+__pycache__/
+*.pyc
+.claude/

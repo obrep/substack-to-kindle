@@ -14,38 +14,42 @@ Usage:
 """
 
 import argparse
-import imaplib
 import email
-import smtplib
+import hashlib
+import imaplib
+import logging
 import os
 import re
+import shutil
+import smtplib
+import subprocess
 import sys
 import time
-import logging
-import subprocess
-import hashlib
-import shutil
 import urllib.request
-from PIL import Image, ImageDraw, ImageFont
-from email.mime.multipart import MIMEMultipart
-from email.mime.base import MIMEBase
-from email.mime.text import MIMEText
-from email import encoders
-from datetime import datetime
-from pathlib import Path
-from bs4 import BeautifulSoup
 from dataclasses import dataclass
+from datetime import datetime
+from email import encoders
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from pathlib import Path
+
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+from PIL import Image, ImageDraw, ImageFont
 
 load_dotenv()
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
+
 
 @dataclass
 class Config:
@@ -77,6 +81,7 @@ class Config:
 # =============================================================================
 # HTML CLEANING
 # =============================================================================
+
 
 class SubstackCleaner:
     """Cleans Substack newsletter HTML for e-reader consumption.
@@ -125,15 +130,17 @@ class SubstackCleaner:
         return self
 
     def clean(self) -> "SubstackCleaner":
-        return (self
-            .remove_styles_and_scripts()
+        return (
+            self.remove_styles_and_scripts()
             .extract_content()
             .simplify_images()
             .strip_hyperlinks()
         )
 
     def get_clean_html(self, title: str = "Newsletter") -> str:
-        body_content = self.soup.body.decode_contents() if self.soup.body else str(self.soup)
+        body_content = (
+            self.soup.body.decode_contents() if self.soup.body else str(self.soup)
+        )
         return f"""<!DOCTYPE html>
 <html>
 <head>
@@ -164,6 +171,7 @@ def clean_substack_html(html: str, title: str = "Newsletter") -> str:
 # =============================================================================
 # EMAIL PARSING
 # =============================================================================
+
 
 @dataclass
 class ParsedEmail:
@@ -259,8 +267,11 @@ def parse_email_message(msg) -> ParsedEmail:
     message_id = msg["Message-ID"] or str(hash(subject + str(date)))
 
     return ParsedEmail(
-        subject=subject, author=author, html_content=html_content,
-        date=date, message_id=message_id,
+        subject=subject,
+        author=author,
+        html_content=html_content,
+        date=date,
+        message_id=message_id,
     )
 
 
@@ -322,7 +333,7 @@ def generate_cover(title: str, author: str, article_image: Path, output_path: Pa
     MARGIN = 60
     TEXT_AREA_W = WIDTH - 2 * MARGIN
 
-    cover = Image.new("RGB", (WIDTH, HEIGHT), "#1a1a2e")
+    cover = Image.new("RGB", (WIDTH, HEIGHT), "#ffffff")
     draw = ImageDraw.Draw(cover)
 
     # Try to load a good font, fall back to default
@@ -350,11 +361,17 @@ def generate_cover(title: str, author: str, article_image: Path, output_path: Pa
     title_lines = wrap_text(title, font_title, TEXT_AREA_W)
     if len(title_lines) > MAX_TITLE_LINES:
         title_lines = title_lines[:MAX_TITLE_LINES]
-        title_lines[-1] = title_lines[-1].rsplit(" ", 1)[0] + "..." if " " in title_lines[-1] else title_lines[-1] + "..."
+        title_lines[-1] = (
+            title_lines[-1].rsplit(" ", 1)[0] + "..."
+            if " " in title_lines[-1]
+            else title_lines[-1] + "..."
+        )
     title_y = MARGIN
     for line in title_lines:
         line_w = draw.textlength(line, font=font_title)
-        draw.text(((WIDTH - line_w) / 2, title_y), line, fill="#e0e0e0", font=font_title)
+        draw.text(
+            ((WIDTH - line_w) / 2, title_y), line, fill="#1a1a1a", font=font_title
+        )
         title_y += 64
     title_y += 20
 
@@ -364,7 +381,9 @@ def generate_cover(title: str, author: str, article_image: Path, output_path: Pa
     author_y = HEIGHT - MARGIN - author_h
     for line in author_lines:
         line_w = draw.textlength(line, font=font_author)
-        draw.text(((WIDTH - line_w) / 2, author_y), line, fill="#a0a0a0", font=font_author)
+        draw.text(
+            ((WIDTH - line_w) / 2, author_y), line, fill="#555555", font=font_author
+        )
         author_y += 48
 
     # Place article image in the middle area
@@ -385,13 +404,26 @@ def generate_cover(title: str, author: str, article_image: Path, output_path: Pa
     return output_path
 
 
-def convert_html_to_epub(html_path: Path, epub_path: Path, title: str, author: str,
-                         pubdate: datetime = None, cover: Path = None) -> bool:
+def convert_html_to_epub(
+    html_path: Path,
+    epub_path: Path,
+    title: str,
+    author: str,
+    pubdate: datetime = None,
+    cover: Path = None,
+) -> bool:
     """Convert HTML to EPUB using Calibre's ebook-convert."""
     cmd = [
-        "ebook-convert", str(html_path), str(epub_path),
-        "--title", title, "--authors", author,
-        "--language", "en", "--epub-inline-toc",
+        "ebook-convert",
+        str(html_path),
+        str(epub_path),
+        "--title",
+        title,
+        "--authors",
+        author,
+        "--language",
+        "en",
+        "--epub-inline-toc",
     ]
     if cover:
         cmd += ["--cover", str(cover)]
@@ -413,6 +445,7 @@ def convert_html_to_epub(html_path: Path, epub_path: Path, title: str, author: s
 # KINDLE SENDING
 # =============================================================================
 
+
 def send_to_kindle(config: Config, epub_path: Path, title: str) -> bool:
     msg = MIMEMultipart()
     msg["From"] = config.email_address
@@ -424,7 +457,9 @@ def send_to_kindle(config: Config, epub_path: Path, title: str) -> bool:
         part = MIMEBase("application", "epub+zip")
         part.set_payload(f.read())
         encoders.encode_base64(part)
-        part.add_header("Content-Disposition", f'attachment; filename="{epub_path.name}"')
+        part.add_header(
+            "Content-Disposition", f'attachment; filename="{epub_path.name}"'
+        )
         msg.attach(part)
 
     try:
@@ -443,11 +478,12 @@ def send_to_kindle(config: Config, epub_path: Path, title: str) -> bool:
 # IMAP HELPERS
 # =============================================================================
 
+
 def find_emails(mail, since=None, unseen_only=False):
     """Search for direct Substack emails and forwarded emails."""
     filters = ""
     if since:
-        filters += f' SINCE {since.strftime("%d-%b-%Y")}'
+        filters += f" SINCE {since.strftime('%d-%b-%Y')}"
     if unseen_only:
         filters += " UNSEEN"
 
@@ -481,7 +517,7 @@ def is_substack_email(msg) -> bool:
 
 
 def make_filename(parsed: ParsedEmail) -> str:
-    safe_title = re.sub(r'[^\w\s-]', '', parsed.subject)[:50].strip()
+    safe_title = re.sub(r"[^\w\s-]", "", parsed.subject)[:50].strip()
     return safe_title
 
 
@@ -507,7 +543,9 @@ def process_to_epub(parsed: ParsedEmail, output_dir: Path):
 
     # Convert to EPUB
     epub_path = output_dir / f"{filename_base}.epub"
-    success = convert_html_to_epub(html_path, epub_path, parsed.subject, parsed.author, parsed.date, cover_path)
+    success = convert_html_to_epub(
+        html_path, epub_path, parsed.subject, parsed.author, parsed.date, cover_path
+    )
 
     # Clean up
     html_path.unlink(missing_ok=True)
@@ -521,8 +559,15 @@ def process_to_epub(parsed: ParsedEmail, output_dir: Path):
 # MAIN
 # =============================================================================
 
-def fetch_and_process(config: Config, output_dir: Path, since=None, limit=None,
-                      kindle=False, unseen_only=False):
+
+def fetch_and_process(
+    config: Config,
+    output_dir: Path,
+    since=None,
+    limit=None,
+    kindle=False,
+    unseen_only=False,
+):
     """Fetch emails from Gmail, convert to EPUB, optionally send to Kindle.
     Marks successfully processed emails as read."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -580,14 +625,24 @@ def main():
   python processor.py --unseen --kindle        # process unseen, send to Kindle
   python processor.py -n 3                     # fetch last 3 emails
   python processor.py --since 2025-01-01       # fetch emails since date
-""")
-    parser.add_argument("-n", "--limit", type=int, help="Only process the N most recent emails")
-    parser.add_argument("--since", help="Only process emails after this date (YYYY-MM-DD)")
-    parser.add_argument("--unseen", action="store_true", help="Only process unseen emails")
+""",
+    )
+    parser.add_argument(
+        "-n", "--limit", type=int, help="Only process the N most recent emails"
+    )
+    parser.add_argument(
+        "--since", help="Only process emails after this date (YYYY-MM-DD)"
+    )
+    parser.add_argument(
+        "--unseen", action="store_true", help="Only process unseen emails"
+    )
     parser.add_argument("--kindle", action="store_true", help="Send EPUBs to Kindle")
-    parser.add_argument("--output-dir", default="./epubs", help="Output directory (default: ./epubs)")
-    parser.add_argument("--daemon", action="store_true", help="Run as daemon polling for unseen emails")
-
+    parser.add_argument(
+        "--output-dir", default="./epubs", help="Output directory (default: ./epubs)"
+    )
+    parser.add_argument(
+        "--daemon", action="store_true", help="Run as daemon polling for unseen emails"
+    )
     args = parser.parse_args()
 
     # Require at least one fetch mode
@@ -597,7 +652,9 @@ def main():
     # Shared setup for fetch/daemon
     config = Config.from_env()
     if not config.email_address or not config.email_password:
-        print("ERROR: EMAIL_ADDRESS and EMAIL_PASSWORD required in .env", file=sys.stderr)
+        print(
+            "ERROR: EMAIL_ADDRESS and EMAIL_PASSWORD required in .env", file=sys.stderr
+        )
         sys.exit(1)
 
     if args.kindle and not config.kindle_email:
@@ -609,19 +666,33 @@ def main():
 
     # Mode 2: Daemon — poll for unseen emails forever
     if args.daemon:
-        logger.info(f"Starting daemon, checking every {config.check_interval}s, kindle={args.kindle}")
+        logger.info(
+            f"Starting daemon, checking every {config.check_interval}s, kindle={args.kindle}"
+        )
         while True:
             try:
-                fetch_and_process(config, output_dir, since=since, limit=args.limit,
-                                  kindle=args.kindle, unseen_only=True)
+                fetch_and_process(
+                    config,
+                    output_dir,
+                    since=since,
+                    limit=args.limit,
+                    kindle=args.kindle,
+                    unseen_only=True,
+                )
             except Exception as e:
                 logger.error(f"Error: {e}")
             time.sleep(config.check_interval)
 
     # Mode 3: One-shot fetch
     else:
-        fetch_and_process(config, output_dir, since=since, limit=args.limit,
-                          kindle=args.kindle, unseen_only=args.unseen)
+        fetch_and_process(
+            config,
+            output_dir,
+            since=since,
+            limit=args.limit,
+            kindle=args.kindle,
+            unseen_only=args.unseen,
+        )
         print(f"\nDone! EPUBs saved to: {output_dir}")
 
 

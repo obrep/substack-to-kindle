@@ -669,6 +669,7 @@ def main():
         logger.info(
             f"Starting daemon, checking every {config.check_interval}s, kindle={args.kindle}"
         )
+        heartbeat_file = Path("/tmp/healthcheck")
         while True:
             try:
                 fetch_and_process(
@@ -681,6 +682,7 @@ def main():
                 )
             except Exception as e:
                 logger.error(f"Error: {e}")
+            heartbeat_file.write_text(str(time.time()))
             time.sleep(config.check_interval)
 
     # Mode 3: One-shot fetch

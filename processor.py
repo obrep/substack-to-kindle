@@ -203,11 +203,19 @@ def parse_email_message(msg) -> ParsedEmail:
     if from_header and not original_from:
         original_from = from_header
     if original_from:
-        match = re.match(r"(.+?)\s*<", original_from)
+        # Decode RFC 2047 encoding (=?utf-8?b?...?=)
+        decoded_parts = email.header.decode_header(original_from)
+        decoded_from = ""
+        for part, charset in decoded_parts:
+            if isinstance(part, bytes):
+                decoded_from += part.decode(charset or "utf-8", errors="replace")
+            else:
+                decoded_from += str(part)
+        match = re.match(r"(.+?)\s*<", decoded_from)
         if match:
             author = match.group(1).strip().strip('"')
         else:
-            author = from_header.split("@")[0]
+            author = decoded_from.split("@")[0]
 
     # Parse date
     date = datetime.now()

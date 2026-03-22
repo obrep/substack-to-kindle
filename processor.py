@@ -394,6 +394,12 @@ def generate_cover(title: str, author: str, article_image: Path, output_path: Pa
         try:
             img = Image.open(article_image)
             img.thumbnail((TEXT_AREA_W, img_area_h), Image.LANCZOS)
+            if img.mode == "RGBA":
+                bg = Image.new("RGB", img.size, "#ffffff")
+                bg.paste(img, mask=img.split()[3])
+                img = bg
+            elif img.mode != "RGB":
+                img = img.convert("RGB")
             x = (WIDTH - img.width) // 2
             y = img_top + (img_area_h - img.height) // 2
             cover.paste(img, (x, y))

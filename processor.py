@@ -573,45 +573,48 @@ def fetch_and_process(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     mail = imaplib.IMAP4_SSL(config.imap_host, config.imap_port)
-    mail.login(config.email_address, config.email_password)
-    mail.select("INBOX")
+    try:
+        mail.login(config.email_address, config.email_password)
+        mail.select("INBOX")
 
-    email_ids = find_emails(mail, since, unseen_only)
-    if not email_ids:
-        logger.info("No emails to process")
-        mail.logout()
-        return
+        email_ids = find_emails(mail, since, unseen_only)
+        if not email_ids:
+            logger.info("No emails to process")
+            return
 
-    if limit:
-        email_ids = email_ids[-limit:]
+        if limit:
+            email_ids = email_ids[-limit:]
 
-    logger.info(f"Found {len(email_ids)} email(s) to process")
+        logger.info(f"Found {len(email_ids)} email(s) to process")
 
-    for eid in email_ids:
-        _, msg_data = mail.fetch(eid, "(RFC822)")
-        msg = email.message_from_bytes(msg_data[0][1])
+        for eid in email_ids:
+            _, msg_data = mail.fetch(eid, "(RFC822)")
+            msg = email.message_from_bytes(msg_data[0][1])
 
-        if not is_substack_email(msg):
-            continue
+            if not is_substack_email(msg):
+                continue
 
+            try:
+                parsed = parse_email_message(msg)
+                logger.info(f"Processing: {parsed.subject} ({parsed.author})")
+
+                epub_path = process_to_epub(parsed, output_dir)
+                if epub_path:
+                    logger.info(f"  Created: {epub_path}")
+                    if kindle and config.kindle_email:
+                        if send_to_kindle(config, epub_path, parsed.subject):
+                            logger.info(f"  Sent to Kindle")
+                    # Mark as read so we don't process again
+                    mail.store(eid, "+FLAGS", "\\Seen")
+                else:
+                    logger.info("  Skipped: no content")
+            except Exception as e:
+                logger.error(f"  Error: {e}")
+    finally:
         try:
-            parsed = parse_email_message(msg)
-            logger.info(f"Processing: {parsed.subject} ({parsed.author})")
-
-            epub_path = process_to_epub(parsed, output_dir)
-            if epub_path:
-                logger.info(f"  Created: {epub_path}")
-                if kindle and config.kindle_email:
-                    if send_to_kindle(config, epub_path, parsed.subject):
-                        logger.info(f"  Sent to Kindle")
-                # Mark as read so we don't process again
-                mail.store(eid, "+FLAGS", "\\Seen")
-            else:
-                logger.info("  Skipped: no content")
-        except Exception as e:
-            logger.error(f"  Error: {e}")
-
-    mail.logout()
+            mail.logout()
+        except Exception:
+            pass
 
 
 def main():
@@ -699,4 +702,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        logger.critical(f"Fatal crash: {e}", exc_info=True)
+        sys.exit(1)

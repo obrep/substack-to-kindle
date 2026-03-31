@@ -477,7 +477,7 @@ def send_to_kindle(config: Config, epub_path: Path, title: str) -> bool:
         msg.attach(part)
 
     try:
-        with smtplib.SMTP(config.smtp_host, config.smtp_port) as server:
+        with smtplib.SMTP(config.smtp_host, config.smtp_port, timeout=30) as server:
             server.starttls()
             server.login(config.email_address, config.email_password)
             server.send_message(msg)
@@ -586,7 +586,7 @@ def fetch_and_process(
     Marks successfully processed emails as read."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    mail = imaplib.IMAP4_SSL(config.imap_host, config.imap_port)
+    mail = imaplib.IMAP4_SSL(config.imap_host, config.imap_port, timeout=30)
     try:
         mail.login(config.email_address, config.email_password)
         mail.select("INBOX")
@@ -686,7 +686,8 @@ def main():
         logger.info(
             f"Starting daemon, checking every {config.check_interval}s, kindle={args.kindle}"
         )
-        heartbeat_file = Path("/tmp/healthcheck")
+        consecutive_errors = 0
+        max_consecutive_errors = 5
         while True:
             try:
                 fetch_and_process(
@@ -697,10 +698,15 @@ def main():
                     kindle=args.kindle,
                     unseen_only=True,
                 )
+                consecutive_errors = 0
             except Exception as e:
-                logger.error(f"Error: {e}")
-            heartbeat_file.write_text(str(time.time()))
-            time.sleep(config.check_interval)
+                consecutive_errors += 1
+                logger.error(f"Error ({consecutive_errors}/{max_consecutive_errors}): {e}")
+                if consecutive_errors >= max_consecutive_errors:
+                    logger.critical("Too many consecutive errors, exiting for restart")
+                    sys.exit(1)
+            sleep = config.check_interval * (2 ** consecutive_errors)
+            time.sleep(sleep)
 
     # Mode 3: One-shot fetch
     else:

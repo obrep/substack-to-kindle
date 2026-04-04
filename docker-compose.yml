@@ -2,6 +2,7 @@ version: '3.9'
 
 services:
   app:
+    image: substack-to-kindle
     build: .
     container_name: substack-to-kindle
     restart: always
